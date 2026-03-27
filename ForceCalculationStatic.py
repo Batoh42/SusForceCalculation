@@ -49,6 +49,9 @@ class TwoPointLink:  # Pushrod, TieRod
 
     def print_forces(self, name: str = "TwoPointLink") -> None:
         """Print link forces."""
+        if self.comp_forces is None:
+            raise RuntimeError("Forces not calculated. Call force() before print_forces()")
+        
         print(f"{name} Forces:")
         fx, fy, fz = self.comp_forces.T
         print(f"Link Force {self.link_force} [N]\n")
@@ -78,8 +81,8 @@ class Wishbone:
         self.rear_comp_forces = None
 
     def force(self, front_force: np.ndarray, rear_force: np.ndarray) -> None:
-        if (self.front_unit_moment_vector is None
-                or self.rear_unit_moment_vector is None):
+        if (self.front_unit_moment_vector is None 
+            or self.rear_unit_moment_vector is None):
             raise RuntimeError("Unit Moment Vector not built")
 
         self.front_link_force = front_force.squeeze()
@@ -106,6 +109,9 @@ class Wishbone:
 
     def print_forces(self, name: str = "Wishbone") -> None:
         """Print all link forces."""
+        if self.front_comp_forces is None or self.rear_comp_forces is None:
+            raise RuntimeError("Forces not calculated. Call force() before print_forces()")
+        
         print(f"{name} Forces:")
         print(f"  Front Link Force {self.front_link_force} [N]\n")
         ffx, ffy, ffz = self.front_comp_forces.T
@@ -173,15 +179,15 @@ class Axle:
 
 def unit_moment_vector(p1: Joint, p2: Joint) -> np.ndarray:
     """Create a unit moment vector from two points."""
-    p1 = np.array([p1.x, p1.y, p1.z])
-    p2 = np.array([p2.x, p2.y, p2.z])
+    p1_array = np.array([p1.x, p1.y, p1.z])
+    p2_array = np.array([p2.x, p2.y, p2.z])
 
-    vec = p2 - p1
+    vec = p2_array - p1_array
 
     magnitude = np.linalg.norm(vec)
     unit_vec = vec / magnitude
 
-    r = p1
+    r = p1_array
     moment_vec = np.cross(r, unit_vec)
 
     combined = np.hstack((unit_vec, moment_vec))
@@ -190,12 +196,15 @@ def unit_moment_vector(p1: Joint, p2: Joint) -> np.ndarray:
 # ==========Main Pipeline===========
 class SuspensionGeometry:
     """Loads and builds suspension geometry."""
-    def __init__(self, file):
+    def __init__(self, file: str):
         self.file_path = file
         with open(self.file_path, "r", encoding="utf-8", errors="ignore") as f:
             self.lines = f.read().splitlines()
 
         frontend_start_line, rearend_start_line = self._find_suspension_line_numbers()
+
+        if frontend_start_line is None or rearend_start_line is None:
+            raise ValueError("Could not find FRONT SUSPENSION or REAR SUSPENSION in file")
 
         def load_geometry(start_line: int) \
                 -> tuple[Wishbone, Wishbone, TwoPointLink, TwoPointLink]:
@@ -208,7 +217,7 @@ class SuspensionGeometry:
             }
 
             # Parse all joints in one pass
-            joints = {}
+            joints: dict[str, list[Joint]] = {}
             current = start_line + 1
 
             for name, count in LAYOUT.items():
@@ -272,8 +281,8 @@ class SuspensionGeometry:
 class StaticSuspensionForces:
     """Based on suspension geometry and input position and forces,
        calculates forces in suspension members."""
-    def __init__(self,front_contact_patch, front_contact_patch_force,
-                 rear_contact_patch, rear_contact_patch_force, suspension):
+    def __init__(self, front_contact_patch: np.ndarray, front_contact_patch_force: np.ndarray,
+                 rear_contact_patch: np.ndarray, rear_contact_patch_force: np.ndarray, suspension: SuspensionGeometry):
 
         self.front_contact_patch = front_contact_patch
         self.front_contact_patch_force = front_contact_patch_force
@@ -296,7 +305,7 @@ class StaticSuspensionForces:
 
 
 
-        def save_forces_to_members(axle_obj,FOut) -> None:
+        def save_forces_to_members(axle_obj: Axle, FOut: np.ndarray) -> None:
             axle_obj.lower_wishbone.force(FOut[:, 0], FOut[:, 1])
             axle_obj.upper_wishbone.force(FOut[:, 2], FOut[:, 3])
             axle_obj.pushrod.force(FOut[:, 4])
